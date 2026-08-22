@@ -11,6 +11,37 @@ class Modality(StrEnum):
     IMAGE = "image"
 
 
+class IngestionJobStatus(StrEnum):
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class DocumentMetadata(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=255)
+    size_bytes: int = Field(ge=1)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class DocumentRecord(BaseModel):
+    document_id: UUID
+    tenant_id: UUID
+    metadata: DocumentMetadata
+    storage_key: str = Field(min_length=1)
+    created_at: datetime
+
+
+class IngestionJob(BaseModel):
+    job_id: UUID
+    document_id: UUID
+    tenant_id: UUID
+    status: IngestionJobStatus
+    error: str | None = None
+    created_at: datetime
+
+
 class Provenance(BaseModel):
     document_id: UUID
     page_number: int | None = Field(default=None, ge=1)
