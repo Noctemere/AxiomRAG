@@ -24,6 +24,7 @@ _document_store = LocalDocumentStore(Path("data/documents"))
 _ingestion_service = IngestionService(
     document_store=_document_store,
     allowed_content_types=frozenset({
+        "application/pdf",
         "text/plain",
         "text/markdown",
     }),

@@ -10,11 +10,12 @@ from apps.api.database import engine
 from apps.worker.celery_app import celery_app
 from apps.worker.chunk_repository import PostgresChunkRepository
 from apps.worker.chunking import ChunkingService
+from apps.worker.docling_parser import DoclingParser
 from apps.worker.parser import ParserRegistry, PlainTextParser
 from apps.worker.storage import LocalDocumentStore
 
 document_store = LocalDocumentStore(Path("data/documents"))
-parser_registry = ParserRegistry([PlainTextParser()])
+parser_registry = ParserRegistry([PlainTextParser(), DoclingParser.create_default()])
 chunking_service = ChunkingService()
 
 

@@ -21,7 +21,10 @@ class ParsedBlock:
 class DocumentParser(Protocol):
     """Adapter boundary for Docling, OCR, or another layout-aware parser."""
 
-    supported_content_types: frozenset[str]
+    @property
+    def supported_content_types(self) -> frozenset[str]:
+        """MIME types accepted by the parser."""
+        ...
 
     def parse(
         self,
