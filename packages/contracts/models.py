@@ -49,6 +49,15 @@ class Provenance(BaseModel):
     chunk_id: UUID | None = None
 
 
+class DocumentChunk(BaseModel):
+    chunk_id: UUID
+    document_id: UUID
+    tenant_id: UUID
+    content: str = Field(min_length=1)
+    modality: Modality
+    provenance: Provenance
+
+
 class Query(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     conversation_id: UUID | None = None

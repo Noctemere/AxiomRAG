@@ -15,6 +15,7 @@ class ParsedBlock:
     content: str
     modality: Modality
     provenance: Provenance
+    tenant_id: UUID
 
 
 class DocumentParser(Protocol):
@@ -26,6 +27,7 @@ class DocumentParser(Protocol):
         self,
         *,
         document_id: UUID,
+        tenant_id: UUID,
         content: bytes,
         content_type: str,
     ) -> list[ParsedBlock]:
@@ -42,6 +44,7 @@ class PlainTextParser:
         self,
         *,
         document_id: UUID,
+        tenant_id: UUID,
         content: bytes,
         content_type: str,
     ) -> list[ParsedBlock]:
@@ -60,6 +63,7 @@ class PlainTextParser:
                     content=paragraph,
                     modality=Modality.TEXT,
                     provenance=Provenance(document_id=document_id, page_number=1),
+                    tenant_id=tenant_id,
                 )
             )
         return blocks

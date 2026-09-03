@@ -9,10 +9,12 @@ from packages.contracts.models import Modality
 def test_plain_text_parser_creates_provenance_blocks() -> None:
     """Verify paragraphs become text blocks linked to the source document."""
     document_id = uuid4()
+    tenant_id = uuid4()
     parser = PlainTextParser()
 
     blocks = parser.parse(
         document_id=document_id,
+        tenant_id=tenant_id,
         content=b"First paragraph.\n\nSecond paragraph.",
         content_type="text/plain",
     )
@@ -23,12 +25,14 @@ def test_plain_text_parser_creates_provenance_blocks() -> None:
     assert all(block.modality is Modality.TEXT for block in blocks)
     assert all(block.provenance.document_id == document_id for block in blocks)
     assert all(block.provenance.page_number == 1 for block in blocks)
+    assert all(block.tenant_id == tenant_id for block in blocks)
 
 
 def test_plain_text_parser_ignores_blank_paragraphs() -> None:
     """Verify empty sections do not become searchable content."""
     blocks = PlainTextParser().parse(
         document_id=uuid4(),
+        tenant_id=uuid4(),
         content=b"\n\nOnly content\n\n",
         content_type="text/plain",
     )
@@ -39,7 +43,7 @@ def test_plain_text_parser_rejects_invalid_utf8() -> None:
     """Verify invalid source encoding fails instead of silently corrupting text."""
     with pytest.raises(UnicodeDecodeError):
         PlainTextParser().parse(
-            document_id=uuid4(), content=b"\xff", content_type="text/plain"
+            document_id=uuid4(), tenant_id=uuid4(), content=b"\xff", content_type="text/plain"
         )
 
 
