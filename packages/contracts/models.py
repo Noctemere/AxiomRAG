@@ -56,6 +56,7 @@ class DocumentChunk(BaseModel):
     content: str = Field(min_length=1)
     modality: Modality
     provenance: Provenance
+    created_at: datetime
 
 
 class Query(BaseModel):

@@ -29,6 +29,7 @@ def test_chunking_preserves_content_and_provenance() -> None:
     assert chunks[0].document_id == block.provenance.document_id
     assert chunks[0].provenance == block.provenance
     assert chunks[0].modality is Modality.TEXT
+    assert chunks[0].created_at.tzinfo is not None
 
 
 def test_chunking_splits_on_word_boundaries() -> None:

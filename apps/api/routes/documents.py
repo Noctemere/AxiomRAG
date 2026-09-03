@@ -5,7 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from apps.api.config import get_settings
+from apps.api.database import SessionFactory
+from apps.worker.document_repository import PostgresDocumentRepository
 from apps.worker.ingestion_service import (
     IngestionService,
     IngestionValidationError,
@@ -18,17 +19,13 @@ from apps.worker.tasks import (  # type: ignore[attr-defined]
 )
 from packages.contracts.models import IngestionJob
 
-settings = get_settings()
-
 # Initialize storage and service at module scope for reuse across requests.
 _document_store = LocalDocumentStore(Path("data/documents"))
 _ingestion_service = IngestionService(
     document_store=_document_store,
     allowed_content_types=frozenset({
-        "application/pdf",
         "text/plain",
         "text/markdown",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }),
     max_size_bytes=100_000_000,  # 100 MB
 )
@@ -100,22 +97,25 @@ async def upload_document(
             detail="failed to persist document",
         ) from exc
 
+    async with SessionFactory() as session:
+        await PostgresDocumentRepository(session).create(document)
+
     # Dispatch the asynchronous ingestion task chain.
     # The chain ensures tasks run in order: parse -> embed -> index.
     task_chain = (
-        parse_document.s(  # type: ignore[attr-defined]
+        parse_document.si(  # type: ignore[attr-defined]
             job_id=str(job.job_id),
             document_id=str(document.document_id),
             tenant_id=str(tenant_uuid),
             storage_key=document.storage_key,
             content_type=document.metadata.content_type,
         )
-        | embed_chunks.s(  # type: ignore[attr-defined]
+        | embed_chunks.si(  # type: ignore[attr-defined]
             job_id=str(job.job_id),
             document_id=str(document.document_id),
             tenant_id=str(tenant_uuid),
         )
-        | index_to_qdrant.s(  # type: ignore[attr-defined]
+        | index_to_qdrant.si(  # type: ignore[attr-defined]
             job_id=str(job.job_id),
             document_id=str(document.document_id),
             tenant_id=str(tenant_uuid),

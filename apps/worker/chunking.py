@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from apps.worker.parser import ParsedBlock
@@ -48,6 +49,7 @@ class ChunkingService:
                 content=piece,
                 modality=block.modality,
                 provenance=block.provenance,
+                created_at=datetime.now(UTC),
             )
             for piece in pieces
         ]

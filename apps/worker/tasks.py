@@ -1,6 +1,48 @@
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.database import engine
 from apps.worker.celery_app import celery_app
+from apps.worker.chunk_repository import PostgresChunkRepository
+from apps.worker.chunking import ChunkingService
+from apps.worker.parser import ParserRegistry, PlainTextParser
+from apps.worker.storage import LocalDocumentStore
+
+document_store = LocalDocumentStore(Path("data/documents"))
+parser_registry = ParserRegistry([PlainTextParser()])
+chunking_service = ChunkingService()
+
+
+async def _parse_and_persist(
+    *,
+    document_id: UUID,
+    tenant_id: UUID,
+    storage_key: str,
+    content_type: str,
+) -> int:
+    """Read, parse, chunk, and persist one document inside an async worker bridge."""
+    content = await document_store.read(storage_key)
+    parser = parser_registry.get(content_type)
+    blocks = parser.parse(
+        document_id=document_id,
+        tenant_id=tenant_id,
+        content=content,
+        content_type=content_type,
+    )
+    chunks = chunking_service.chunk_blocks(blocks)
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        repository = PostgresChunkRepository(session)
+        await repository.replace_for_document(
+            document_id=document_id,
+            tenant_id=tenant_id,
+            chunks=chunks,
+        )
+    return len(chunks)
 
 
 @celery_app.task(bind=True, name="ingestion.parse_document")  # type: ignore[misc]
@@ -31,14 +73,20 @@ def parse_document(
         celery.Task.retry: If parsing fails and retries are configured.
     """
     try:
-        # Placeholder: parsing logic will be implemented in Phase 2 continuation.
-        # Future work will integrate Docling or Unstructured for layout-aware extraction.
+        chunks_created = asyncio.run(
+            _parse_and_persist(
+                document_id=UUID(document_id),
+                tenant_id=UUID(tenant_id),
+                storage_key=storage_key,
+                content_type=content_type,
+            )
+        )
         return {
             "job_id": job_id,
             "document_id": document_id,
             "tenant_id": tenant_id,
             "status": "queued_for_embedding",
-            "chunks_created": 0,
+            "chunks_created": chunks_created,
         }
     except Exception as exc:
         # Exponential backoff retry: 60s, 120s, 300s
