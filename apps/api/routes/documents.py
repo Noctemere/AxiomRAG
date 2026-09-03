@@ -11,7 +11,11 @@ from apps.worker.ingestion_service import (
     IngestionValidationError,
 )
 from apps.worker.storage import LocalDocumentStore
-from apps.worker.tasks import embed_chunks, index_to_qdrant, parse_document  # type: ignore[attr-defined]
+from apps.worker.tasks import (  # type: ignore[attr-defined]
+    embed_chunks,
+    index_to_qdrant,
+    parse_document,
+)
 from packages.contracts.models import IngestionJob
 
 settings = get_settings()

@@ -1,6 +1,6 @@
+from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator
 from uuid import uuid4
 
 import pytest

@@ -5,9 +5,12 @@ description = "Enterprise multimodal hybrid RAG and agent platform"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "asyncpg>=0.30,<1",
   "celery[redis]>=5.4,<6",
   "fastapi>=0.115,<1",
+  "python-multipart>=0.0.20,<1",
   "pydantic-settings>=2.7,<3",
+  "sqlalchemy[asyncio]>=2.0.36,<3",
   "structlog>=24.4,<26",
   "uvicorn[standard]>=0.32,<1",
 ]
@@ -36,6 +39,7 @@ include = ["apps", "packages", "tests"]
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
+reportUnknownVariableType = false
 venvPath = "."
 venv = ".venv"
 
