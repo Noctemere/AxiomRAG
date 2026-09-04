@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Any, Protocol, cast
 from uuid import UUID, uuid4
 
-from apps.worker.parser import ParsedBlock
+from apps.worker.parser import ParsedAsset, ParsedBlock, ParsedDocument
 from packages.contracts.models import Modality, Provenance
 
 
@@ -56,7 +56,7 @@ class DoclingParser:
         tenant_id: UUID,
         content: bytes,
         content_type: str,
-    ) -> list[ParsedBlock]:
+    ) -> ParsedDocument:
         """Convert PDF bytes and emit one provenance-preserving block per section."""
         if content_type not in self.supported_content_types:
             raise ValueError(f"unsupported content type: {content_type}")
@@ -65,15 +65,18 @@ class DoclingParser:
 
         source = self._document_stream(content)
         result = self.converter.convert(source)
-        blocks = self._items_to_blocks(
+        parsed = self._items_to_document(
             result.document,
             document_id=document_id,
             tenant_id=tenant_id,
         )
-        if blocks:
-            return blocks
+        if parsed.blocks or parsed.assets:
+            return parsed
         markdown = result.document.export_to_markdown()
-        return self._markdown_to_blocks(markdown, document_id=document_id, tenant_id=tenant_id)
+        return ParsedDocument(
+            blocks=self._markdown_to_blocks(markdown, document_id=document_id, tenant_id=tenant_id),
+            assets=[],
+        )
 
     @staticmethod
     def _document_stream(content: bytes) -> Any:
@@ -106,19 +109,49 @@ class DoclingParser:
         return blocks
 
     @staticmethod
-    def _items_to_blocks(
+    def _items_to_document(
         document: DoclingDocument,
         *,
         document_id: UUID,
         tenant_id: UUID,
-    ) -> list[ParsedBlock]:
-        """Convert Docling text items into blocks with page and bounding-box provenance."""
+    ) -> ParsedDocument:
+        """Convert Docling text, table, and picture items into normalized output."""
         iterate_items = getattr(document, "iterate_items", None)
         if iterate_items is None:
-            return []
+            return ParsedDocument(blocks=[], assets=[])
 
         blocks: list[ParsedBlock] = []
+        assets: list[ParsedAsset] = []
         for item, _level in iterate_items():
+            label = str(getattr(getattr(item, "label", None), "value", ""))
+            provenance = DoclingParser._provenance(item, document_id=document_id)
+            if label == "table":
+                table = getattr(item, "data", None)
+                content = table.export_to_markdown() if table is not None else None
+                if isinstance(content, str) and content.strip():
+                    blocks.append(
+                        ParsedBlock(
+                            block_id=uuid4(),
+                            content=content.strip(),
+                            modality=Modality.TABLE,
+                            provenance=provenance,
+                            tenant_id=tenant_id,
+                        )
+                    )
+                continue
+            if label in {"picture", "chart"}:
+                image = getattr(item, "image", None)
+                if image is not None:
+                    assets.append(
+                        ParsedAsset(
+                            asset_id=uuid4(),
+                            content=image.get_image().tobytes(),
+                            modality=Modality.IMAGE,
+                            provenance=provenance,
+                            tenant_id=tenant_id,
+                        )
+                    )
+                continue
             content = getattr(item, "text", None)
             if not isinstance(content, str) or not content.strip():
                 continue
@@ -142,4 +175,20 @@ class DoclingParser:
                     tenant_id=tenant_id,
                 )
             )
-        return blocks
+        return ParsedDocument(blocks=blocks, assets=assets)
+
+    @staticmethod
+    def _provenance(item: Any, *, document_id: UUID) -> Provenance:
+        """Convert the first Docling provenance item into the shared contract."""
+        provenance_items = getattr(item, "prov", [])
+        item_provenance = provenance_items[0] if provenance_items else None
+        page_number = getattr(item_provenance, "page_no", None)
+        bbox = getattr(item_provenance, "bbox", None)
+        region_id = None
+        if bbox is not None:
+            region_id = f"bbox:{bbox.l:.2f},{bbox.t:.2f},{bbox.r:.2f},{bbox.b:.2f}"
+        return Provenance(
+            document_id=document_id,
+            page_number=page_number,
+            region_id=region_id,
+        )

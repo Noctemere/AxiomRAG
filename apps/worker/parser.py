@@ -18,6 +18,25 @@ class ParsedBlock:
     tenant_id: UUID
 
 
+@dataclass(frozen=True)
+class ParsedAsset:
+    """A binary document asset extracted from a source document."""
+
+    asset_id: UUID
+    content: bytes
+    modality: Modality
+    provenance: Provenance
+    tenant_id: UUID
+
+
+@dataclass(frozen=True)
+class ParsedDocument:
+    """Normalized parser output containing searchable blocks and binary assets."""
+
+    blocks: list[ParsedBlock]
+    assets: list[ParsedAsset]
+
+
 class DocumentParser(Protocol):
     """Adapter boundary for Docling, OCR, or another layout-aware parser."""
 
@@ -33,7 +52,7 @@ class DocumentParser(Protocol):
         tenant_id: UUID,
         content: bytes,
         content_type: str,
-    ) -> list[ParsedBlock]:
+    ) -> ParsedDocument:
         """Extract normalized blocks from a document."""
         ...
 
@@ -50,7 +69,7 @@ class PlainTextParser:
         tenant_id: UUID,
         content: bytes,
         content_type: str,
-    ) -> list[ParsedBlock]:
+    ) -> ParsedDocument:
         """Decode UTF-8 text and emit one provenance-preserving block per paragraph."""
         if content_type not in self.supported_content_types:
             raise ValueError(f"unsupported content type: {content_type}")
@@ -69,7 +88,7 @@ class PlainTextParser:
                     tenant_id=tenant_id,
                 )
             )
-        return blocks
+        return ParsedDocument(blocks=blocks, assets=[])
 
 
 class ParserRegistry:

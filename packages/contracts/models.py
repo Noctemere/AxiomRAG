@@ -59,6 +59,16 @@ class DocumentChunk(BaseModel):
     created_at: datetime
 
 
+class DocumentAsset(BaseModel):
+    asset_id: UUID
+    document_id: UUID
+    tenant_id: UUID
+    modality: Modality
+    storage_key: str = Field(min_length=1)
+    provenance: Provenance
+    created_at: datetime
+
+
 class Query(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     conversation_id: UUID | None = None

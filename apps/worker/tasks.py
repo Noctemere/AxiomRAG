@@ -29,13 +29,13 @@ async def _parse_and_persist(
     """Read, parse, chunk, and persist one document inside an async worker bridge."""
     content = await document_store.read(storage_key)
     parser = parser_registry.get(content_type)
-    blocks = parser.parse(
+    parsed = parser.parse(
         document_id=document_id,
         tenant_id=tenant_id,
         content=content,
         content_type=content_type,
     )
-    chunks = chunking_service.chunk_blocks(blocks)
+    chunks = chunking_service.chunk_blocks(parsed.blocks)
     async with AsyncSession(engine, expire_on_commit=False) as session:
         repository = PostgresChunkRepository(session)
         await repository.replace_for_document(
