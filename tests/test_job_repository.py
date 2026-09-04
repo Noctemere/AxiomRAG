@@ -81,3 +81,22 @@ async def test_repository_returns_latest_job() -> None:
     )
     assert latest is not None
     assert latest.job_id == second.job_id
+
+
+@pytest.mark.asyncio
+async def test_repository_records_bounded_failure() -> None:
+    """Verify failed jobs retain an error without unbounded payload growth."""
+    repository = InMemoryIngestionJobRepository()
+    job = make_job()
+    await repository.create(job)
+    error = "x" * 3_000
+
+    failed = await repository.update_status(
+        job_id=job.job_id,
+        tenant_id=job.tenant_id,
+        status=IngestionJobStatus.FAILED,
+        error=error,
+    )
+
+    assert failed.status is IngestionJobStatus.FAILED
+    assert failed.error == error[:2_000]

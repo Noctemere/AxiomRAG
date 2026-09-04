@@ -62,7 +62,9 @@ class InMemoryIngestionJobRepository:
         job = self._jobs.get(job_id)
         if job is None or job.tenant_id != tenant_id:
             raise KeyError(f"ingestion job not found: {job_id}")
-        updated = job.model_copy(update={"status": status, "error": error})
+        updated = job.model_copy(
+            update={"status": status, "error": error[:2_000] if error else None}
+        )
         self._jobs[job_id] = updated
         return updated
 

@@ -13,6 +13,7 @@ from apps.worker.celery_app import celery_app
 from apps.worker.chunk_repository import PostgresChunkRepository
 from apps.worker.chunking import ChunkingService
 from apps.worker.docling_parser import DoclingParser
+from apps.worker.job_lifecycle import JobLifecycleService
 from apps.worker.parser import ParserRegistry, PlainTextParser
 from apps.worker.storage import LocalDocumentStore
 from packages.contracts.models import DocumentAsset
@@ -69,6 +70,26 @@ async def _parse_and_persist(
     return len(chunks)
 
 
+async def _set_job_status(
+    *,
+    job_id: str,
+    tenant_id: str,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Persist a task lifecycle transition through the shared job service."""
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        lifecycle = JobLifecycleService(session)
+        if status == "processing":
+            await lifecycle.mark_processing(job_id=UUID(job_id), tenant_id=UUID(tenant_id))
+        elif status == "completed":
+            await lifecycle.mark_completed(job_id=UUID(job_id), tenant_id=UUID(tenant_id))
+        elif status == "failed" and error is not None:
+            await lifecycle.mark_failed(
+                job_id=UUID(job_id), tenant_id=UUID(tenant_id), error=error
+            )
+
+
 @celery_app.task(bind=True, name="ingestion.parse_document")  # type: ignore[misc]
 def parse_document(
     self: celery_app.Task,  # type: ignore[name-defined]
@@ -97,6 +118,7 @@ def parse_document(
         celery.Task.retry: If parsing fails and retries are configured.
     """
     try:
+        asyncio.run(_set_job_status(job_id=job_id, tenant_id=tenant_id, status="processing"))
         chunks_created = asyncio.run(
             _parse_and_persist(
                 document_id=UUID(document_id),
@@ -113,6 +135,14 @@ def parse_document(
             "chunks_created": chunks_created,
         }
     except Exception as exc:
+        asyncio.run(
+            _set_job_status(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                status="failed",
+                error=str(exc),
+            )
+        )
         # Exponential backoff retry: 60s, 120s, 300s
         raise self.retry(exc=exc, countdown=60, max_retries=3) from None
 
@@ -151,6 +181,14 @@ def embed_chunks(
             "embeddings_created": 0,
         }
     except Exception as exc:
+        asyncio.run(
+            _set_job_status(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                status="failed",
+                error=str(exc),
+            )
+        )
         # Exponential backoff retry: 60s, 120s, 300s
         raise self.retry(exc=exc, countdown=60, max_retries=3) from None
 
@@ -177,12 +215,23 @@ def index_to_qdrant(
     Raises:
         RuntimeError: If Qdrant is unavailable.
     """
-    # Placeholder: Qdrant indexing will be implemented in Phase 3.
-    # Future work will integrate Qdrant client and collection management.
-    return {
-        "job_id": job_id,
-        "document_id": document_id,
-        "tenant_id": tenant_id,
-        "status": "completed",
-        "vectors_indexed": 0,
-    }
+    try:
+        # Qdrant indexing is implemented in Phase 3; this task still closes the lifecycle.
+        asyncio.run(_set_job_status(job_id=job_id, tenant_id=tenant_id, status="completed"))
+        return {
+            "job_id": job_id,
+            "document_id": document_id,
+            "tenant_id": tenant_id,
+            "status": "completed",
+            "vectors_indexed": 0,
+        }
+    except Exception as exc:
+        asyncio.run(
+            _set_job_status(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                status="failed",
+                error=str(exc),
+            )
+        )
+        raise

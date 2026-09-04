@@ -11,6 +11,7 @@ from apps.worker.ingestion_service import (
     IngestionService,
     IngestionValidationError,
 )
+from apps.worker.job_lifecycle import JobLifecycleService
 from apps.worker.storage import LocalDocumentStore
 from apps.worker.tasks import (  # type: ignore[attr-defined]
     embed_chunks,
@@ -100,6 +101,7 @@ async def upload_document(
 
     async with SessionFactory() as session:
         await PostgresDocumentRepository(session).create(document)
+        await JobLifecycleService(session).create_queued(job)
 
     # Dispatch the asynchronous ingestion task chain.
     # The chain ensures tasks run in order: parse -> embed -> index.
@@ -146,17 +148,23 @@ async def get_document_status(
     Returns:
         A dictionary with the current job status.
     """
-    # Placeholder: database layer will be implemented in Phase 2 continuation.
     try:
-        UUID(document_id)
-        UUID(tenant_id)
+        document_uuid = UUID(document_id)
+        tenant_uuid = UUID(tenant_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="document_id and tenant_id must be valid UUIDs",
         ) from exc
 
-    return {
-        "document_id": document_id,
-        "status": "queued",
-    }
+    async with SessionFactory() as session:
+        job = await JobLifecycleService(session).latest_for_document(
+            document_id=document_uuid,
+            tenant_id=tenant_uuid,
+        )
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="document not found",
+        )
+    return {"document_id": document_id, "status": job.status.value}
