@@ -16,6 +16,10 @@ class DoclingDocument(Protocol):
         """Export layout-aware document content as Markdown."""
         ...
 
+    def iterate_items(self) -> Any:
+        """Iterate document items and their hierarchy levels."""
+        ...
+
 
 class DoclingConversionResult(Protocol):
     """Small portion of a Docling conversion result used by this adapter."""
@@ -61,6 +65,13 @@ class DoclingParser:
 
         source = self._document_stream(content)
         result = self.converter.convert(source)
+        blocks = self._items_to_blocks(
+            result.document,
+            document_id=document_id,
+            tenant_id=tenant_id,
+        )
+        if blocks:
+            return blocks
         markdown = result.document.export_to_markdown()
         return self._markdown_to_blocks(markdown, document_id=document_id, tenant_id=tenant_id)
 
@@ -89,6 +100,45 @@ class DoclingParser:
                     content=section,
                     modality=Modality.TEXT,
                     provenance=Provenance(document_id=document_id, page_number=1),
+                    tenant_id=tenant_id,
+                )
+            )
+        return blocks
+
+    @staticmethod
+    def _items_to_blocks(
+        document: DoclingDocument,
+        *,
+        document_id: UUID,
+        tenant_id: UUID,
+    ) -> list[ParsedBlock]:
+        """Convert Docling text items into blocks with page and bounding-box provenance."""
+        iterate_items = getattr(document, "iterate_items", None)
+        if iterate_items is None:
+            return []
+
+        blocks: list[ParsedBlock] = []
+        for item, _level in iterate_items():
+            content = getattr(item, "text", None)
+            if not isinstance(content, str) or not content.strip():
+                continue
+            provenance_items = getattr(item, "prov", [])
+            provenance = provenance_items[0] if provenance_items else None
+            page_number = getattr(provenance, "page_no", None)
+            bbox = getattr(provenance, "bbox", None)
+            region_id = None
+            if bbox is not None:
+                region_id = f"bbox:{bbox.l:.2f},{bbox.t:.2f},{bbox.r:.2f},{bbox.b:.2f}"
+            blocks.append(
+                ParsedBlock(
+                    block_id=uuid4(),
+                    content=content.strip(),
+                    modality=Modality.TEXT,
+                    provenance=Provenance(
+                        document_id=document_id,
+                        page_number=page_number,
+                        region_id=region_id,
+                    ),
                     tenant_id=tenant_id,
                 )
             )

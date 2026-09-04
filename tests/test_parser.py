@@ -70,10 +70,50 @@ class FakeDoclingDocument:
         return "# Heading\n\nExtracted PDF content"
 
 
+class FakeBoundingBox:
+    """Test bounding box matching Docling's coordinate attributes."""
+
+    left = 10.0
+    t = 20.0
+    r = 100.0
+    b = 40.0
+
+    @property
+    def l(self) -> float:  # noqa: E743
+        return self.left
+
+
+class FakeProvenance:
+    """Test page and region provenance matching Docling's item metadata."""
+
+    page_no = 3
+    bbox = FakeBoundingBox()
+
+
+class FakeTextItem:
+    """Test text item returned by Docling item iteration."""
+
+    text = "Page-aware PDF text"
+    prov = [FakeProvenance()]
+
+
+class PageAwareFakeDoclingDocument(FakeDoclingDocument):
+    """Test document exposing Docling's page-aware item iterator."""
+
+    def iterate_items(self) -> list[tuple[FakeTextItem, int]]:
+        return [(FakeTextItem(), 0)]
+
+
 class FakeDoclingResult:
     """Test double for a Docling conversion result."""
 
     document = FakeDoclingDocument()
+
+
+class PageAwareFakeDoclingResult:
+    """Test conversion result containing page-aware document items."""
+
+    document = PageAwareFakeDoclingDocument()
 
 
 class FakeDoclingConverter:
@@ -85,6 +125,14 @@ class FakeDoclingConverter:
     def convert(self, source: object) -> Any:
         self.source = source
         return FakeDoclingResult()
+
+
+class PageAwareFakeDoclingConverter(FakeDoclingConverter):
+    """Test converter returning page-aware items."""
+
+    def convert(self, source: object) -> Any:
+        self.source = source
+        return PageAwareFakeDoclingResult()
 
 
 def test_docling_parser_normalizes_markdown() -> None:
@@ -114,3 +162,18 @@ def test_docling_parser_rejects_empty_pdf() -> None:
             content=b"",
             content_type="application/pdf",
         )
+
+
+def test_docling_parser_preserves_page_and_region_provenance() -> None:
+    """Verify real Docling item provenance is converted to citation metadata."""
+    blocks = DoclingParser(PageAwareFakeDoclingConverter()).parse(
+        document_id=uuid4(),
+        tenant_id=uuid4(),
+        content=b"%PDF-fake",
+        content_type="application/pdf",
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].content == "Page-aware PDF text"
+    assert blocks[0].provenance.page_number == 3
+    assert blocks[0].provenance.region_id == "bbox:10.00,20.00,100.00,40.00"
