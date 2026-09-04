@@ -71,3 +71,26 @@ class DocumentChunkModel(Base):
     page_number: Mapped[int | None] = mapped_column(nullable=True)
     region_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DocumentAssetModel(Base):
+    """ORM representation of an extracted binary document asset."""
+
+    __tablename__ = "document_assets"
+    __table_args__ = (
+        Index("document_assets_tenant_document_idx", "tenant_id", "document_id"),
+        Index("document_assets_document_page_idx", "document_id", "page_number"),
+    )
+
+    asset_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), primary_key=True)
+    document_id: Mapped[UUID] = mapped_column(
+        PostgresUUID(as_uuid=True),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), nullable=False)
+    modality: Mapped[str] = mapped_column(String(32), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(nullable=True)
+    region_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

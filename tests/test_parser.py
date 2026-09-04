@@ -105,6 +105,46 @@ class PageAwareFakeDoclingDocument(FakeDoclingDocument):
         return [(FakeTextItem(), 0)]
 
 
+class FakeTableData:
+    """Test table data exposing Docling's Markdown export method."""
+
+    def export_to_markdown(self) -> str:
+        return "| Name | Value |\n| --- | --- |\n| A | 1 |"
+
+
+class FakeTableItem:
+    """Test table item returned by Docling item iteration."""
+
+    label = type("Label", (), {"value": "table"})()
+    data = FakeTableData()
+    prov = [FakeProvenance()]
+
+
+class FakeImage:
+    """Test image wrapper exposing the bytes conversion used by the adapter."""
+
+    def get_image(self) -> "FakeImage":
+        return self
+
+    def tobytes(self) -> bytes:
+        return b"image-bytes"
+
+
+class FakePictureItem:
+    """Test picture item returned by Docling item iteration."""
+
+    label = type("Label", (), {"value": "picture"})()
+    image = FakeImage()
+    prov = [FakeProvenance()]
+
+
+class MultimodalFakeDoclingDocument(FakeDoclingDocument):
+    """Test document exposing table and picture items."""
+
+    def iterate_items(self) -> list[tuple[object, int]]:
+        return [(FakeTableItem(), 0), (FakePictureItem(), 0)]
+
+
 class FakeDoclingResult:
     """Test double for a Docling conversion result."""
 
@@ -115,6 +155,12 @@ class PageAwareFakeDoclingResult:
     """Test conversion result containing page-aware document items."""
 
     document = PageAwareFakeDoclingDocument()
+
+
+class MultimodalFakeDoclingResult:
+    """Test conversion result containing table and picture items."""
+
+    document = MultimodalFakeDoclingDocument()
 
 
 class FakeDoclingConverter:
@@ -134,6 +180,14 @@ class PageAwareFakeDoclingConverter(FakeDoclingConverter):
     def convert(self, source: object) -> Any:
         self.source = source
         return PageAwareFakeDoclingResult()
+
+
+class MultimodalFakeDoclingConverter(FakeDoclingConverter):
+    """Test converter returning table and image items."""
+
+    def convert(self, source: object) -> Any:
+        self.source = source
+        return MultimodalFakeDoclingResult()
 
 
 def test_docling_parser_normalizes_markdown() -> None:
@@ -178,3 +232,20 @@ def test_docling_parser_preserves_page_and_region_provenance() -> None:
     assert blocks.blocks[0].content == "Page-aware PDF text"
     assert blocks.blocks[0].provenance.page_number == 3
     assert blocks.blocks[0].provenance.region_id == "bbox:10.00,20.00,100.00,40.00"
+
+
+def test_docling_parser_extracts_tables_and_images() -> None:
+    """Verify tables become blocks and pictures become binary assets."""
+    parsed = DoclingParser(MultimodalFakeDoclingConverter()).parse(
+        document_id=uuid4(),
+        tenant_id=uuid4(),
+        content=b"%PDF-fake",
+        content_type="application/pdf",
+    )
+
+    assert len(parsed.blocks) == 1
+    assert parsed.blocks[0].modality.value == "table"
+    assert "| Name | Value |" in parsed.blocks[0].content
+    assert len(parsed.assets) == 1
+    assert parsed.assets[0].content == b"image-bytes"
+    assert parsed.assets[0].modality.value == "image"

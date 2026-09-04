@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.database import engine
+from apps.worker.asset_repository import PostgresAssetRepository
 from apps.worker.celery_app import celery_app
 from apps.worker.chunk_repository import PostgresChunkRepository
 from apps.worker.chunking import ChunkingService
 from apps.worker.docling_parser import DoclingParser
 from apps.worker.parser import ParserRegistry, PlainTextParser
 from apps.worker.storage import LocalDocumentStore
+from packages.contracts.models import DocumentAsset
 
 document_store = LocalDocumentStore(Path("data/documents"))
 parser_registry = ParserRegistry([PlainTextParser(), DoclingParser.create_default()])
@@ -36,12 +39,32 @@ async def _parse_and_persist(
         content_type=content_type,
     )
     chunks = chunking_service.chunk_blocks(parsed.blocks)
+    asset_records: list[DocumentAsset] = []
+    for asset in parsed.assets:
+        asset_key = f"{tenant_id}/{document_id}/assets/{asset.asset_id}.bin"
+        await document_store.save(asset_key, asset.content)
+        asset_records.append(
+            DocumentAsset(
+                asset_id=asset.asset_id,
+                document_id=document_id,
+                tenant_id=tenant_id,
+                modality=asset.modality,
+                storage_key=asset_key,
+                provenance=asset.provenance,
+                created_at=datetime.now(UTC),
+            )
+        )
     async with AsyncSession(engine, expire_on_commit=False) as session:
         repository = PostgresChunkRepository(session)
         await repository.replace_for_document(
             document_id=document_id,
             tenant_id=tenant_id,
             chunks=chunks,
+        )
+        await PostgresAssetRepository(session).replace_for_document(
+            document_id=document_id,
+            tenant_id=tenant_id,
+            assets=asset_records,
         )
     return len(chunks)
 
