@@ -75,6 +75,12 @@ class RetrievalResult(BaseModel):
     source: str = Field(min_length=1)
 
 
+class RetrievalFilter(BaseModel):
+    document_id: UUID | None = None
+    modality: Modality | None = None
+    page_number: int | None = Field(default=None, ge=1)
+
+
 class Query(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     conversation_id: UUID | None = None

@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-from typing import Protocol
+from datetime import datetime
+from typing import Any, Protocol, cast
 from uuid import UUID
 
-from packages.contracts.models import DocumentChunk
+from packages.contracts.models import (
+    DocumentChunk,
+    Modality,
+    Provenance,
+    RetrievalFilter,
+    RetrievalResult,
+)
 
 
 class VectorIndex(Protocol):
@@ -23,6 +30,29 @@ class VectorIndex(Protocol):
         sparse_vectors: list[tuple[list[int], list[float]]] | None = None,
     ) -> int:
         """Upsert vectors and provenance payloads, returning the point count."""
+        ...
+
+    async def search_dense(
+        self,
+        *,
+        vector: list[float],
+        tenant_id: UUID,
+        filters: RetrievalFilter | None = None,
+        limit: int = 10,
+    ) -> list[RetrievalResult]:
+        """Search named dense vectors with tenant and metadata filters."""
+        ...
+
+    async def search_sparse(
+        self,
+        *,
+        indices: list[int],
+        values: list[float],
+        tenant_id: UUID,
+        filters: RetrievalFilter | None = None,
+        limit: int = 10,
+    ) -> list[RetrievalResult]:
+        """Search named sparse vectors with tenant and metadata filters."""
         ...
 
 
@@ -86,6 +116,7 @@ class QdrantVectorIndex:
                     "page_number": chunk.provenance.page_number,
                     "region_id": chunk.provenance.region_id,
                     "embedding_model": model_name,
+                    "created_at": chunk.created_at.isoformat(),
                 },
             )
             for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
@@ -97,3 +128,121 @@ class QdrantVectorIndex:
                 wait=True,
             )
         return len(points)
+
+    async def search_dense(
+        self,
+        *,
+        vector: list[float],
+        tenant_id: UUID,
+        filters: RetrievalFilter | None = None,
+        limit: int = 10,
+    ) -> list[RetrievalResult]:
+        """Query the named dense vector space and convert points to contracts."""
+        return await self._search(
+            query=vector,
+            using="dense",
+            source="dense_qdrant",
+            tenant_id=tenant_id,
+            filters=filters,
+            limit=limit,
+        )
+
+    async def search_sparse(
+        self,
+        *,
+        indices: list[int],
+        values: list[float],
+        tenant_id: UUID,
+        filters: RetrievalFilter | None = None,
+        limit: int = 10,
+    ) -> list[RetrievalResult]:
+        """Query the named sparse vector space and convert points to contracts."""
+        from qdrant_client.http import models
+
+        return await self._search(
+            query=models.SparseVector(indices=indices, values=values),
+            using="sparse",
+            source="sparse_qdrant",
+            tenant_id=tenant_id,
+            filters=filters,
+            limit=limit,
+        )
+
+    async def _search(
+        self,
+        *,
+        query: object,
+        using: str,
+        source: str,
+        tenant_id: UUID,
+        filters: RetrievalFilter | None,
+        limit: int,
+    ) -> list[RetrievalResult]:
+        """Execute a tenant-filtered Qdrant query and normalize scored points."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        query_filter = self._build_filter(tenant_id=tenant_id, filters=filters)
+        response = await self._client.query_points(  # type: ignore[attr-defined]
+            collection_name=self._collection_name,
+            query=query,
+            using=using,
+            query_filter=query_filter,
+            limit=limit,
+            with_payload=True,
+        )
+        return [
+            self._point_to_result(cast(Any, point), source=source)
+            for point in response.points
+        ]
+
+    @staticmethod
+    def _build_filter(*, tenant_id: UUID, filters: RetrievalFilter | None) -> object:
+        """Build a mandatory tenant condition plus optional metadata conditions."""
+        from qdrant_client.http import models
+
+        conditions = [
+            models.FieldCondition(
+                key="tenant_id",
+                match=models.MatchValue(value=str(tenant_id)),
+            )
+        ]
+        if filters is not None:
+            for key, value in (
+                ("document_id", filters.document_id),
+                ("modality", filters.modality.value if filters.modality else None),
+                ("page_number", filters.page_number),
+            ):
+                if value is not None:
+                    conditions.append(
+                        models.FieldCondition(key=key, match=models.MatchValue(value=str(value)))
+                    )
+        return models.Filter(must=cast(Any, conditions))
+
+    @staticmethod
+    def _point_to_result(point: object, *, source: str) -> RetrievalResult:
+        """Convert a Qdrant scored point payload into a cited chunk contract."""
+        payload = cast(dict[str, object], point.payload)  # type: ignore[attr-defined]
+        document_id = UUID(str(payload["document_id"]))
+        chunk_id = UUID(str(payload["chunk_id"]))
+        page_number = payload.get("page_number")
+        region_id = payload.get("region_id")
+        page_number = int(str(page_number)) if page_number is not None else None
+        region_id = str(region_id) if region_id is not None else None
+        return RetrievalResult(
+            chunk=DocumentChunk(
+                chunk_id=chunk_id,
+                document_id=document_id,
+                tenant_id=UUID(str(payload["tenant_id"])),
+                content=str(payload["content"]),
+                modality=Modality(str(payload["modality"])),
+                provenance=Provenance(
+                    document_id=document_id,
+                    page_number=page_number,
+                    region_id=region_id,
+                    chunk_id=chunk_id,
+                ),
+                created_at=datetime.fromisoformat(str(payload["created_at"])),
+            ),
+            score=point.score,  # type: ignore[attr-defined]
+            source=source,
+        )
