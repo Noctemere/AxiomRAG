@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "axiomrag_documents"
+    embedding_api_key: str | None = None
+    embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+    embedding_batch_size: int = 64
     langfuse_host: str = "http://localhost:3000"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None

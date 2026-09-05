@@ -15,7 +15,7 @@ from apps.worker.celery_app import celery_app
 from apps.worker.chunk_repository import PostgresChunkRepository
 from apps.worker.chunking import ChunkingService
 from apps.worker.docling_parser import DoclingParser
-from apps.worker.embedding import HashEmbeddingProvider
+from apps.worker.embedding import HashEmbeddingProvider, OpenAICompatibleEmbeddingProvider
 from apps.worker.embedding import embed_chunks as create_embeddings
 from apps.worker.job_lifecycle import JobLifecycleService
 from apps.worker.parser import ParserRegistry, PlainTextParser
@@ -28,7 +28,17 @@ settings = get_settings()
 document_store = LocalDocumentStore(Path("data/documents"))
 parser_registry = ParserRegistry([PlainTextParser(), DoclingParser.create_default()])
 chunking_service = ChunkingService()
-embedding_provider = HashEmbeddingProvider()
+embedding_provider = (
+    OpenAICompatibleEmbeddingProvider(
+        api_key=settings.embedding_api_key,
+        base_url=settings.embedding_base_url,
+        model_name=settings.embedding_model,
+        dimension=settings.embedding_dimension,
+        batch_size=settings.embedding_batch_size,
+    )
+    if settings.embedding_api_key
+    else HashEmbeddingProvider()
+)
 sparse_vectorizer = SparseVectorizer()
 qdrant_index = QdrantVectorIndex(AsyncQdrantClient(settings.qdrant_url), settings.qdrant_collection)
 
