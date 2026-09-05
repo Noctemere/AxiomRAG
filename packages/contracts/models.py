@@ -69,6 +69,12 @@ class DocumentAsset(BaseModel):
     created_at: datetime
 
 
+class RetrievalResult(BaseModel):
+    chunk: DocumentChunk
+    score: float
+    source: str = Field(min_length=1)
+
+
 class Query(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     conversation_id: UUID | None = None
