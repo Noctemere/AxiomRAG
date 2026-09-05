@@ -31,7 +31,13 @@ class FakeQdrantClient:
     async def collection_exists(self, *, collection_name: str) -> bool:
         return collection_name in self.collections
 
-    async def create_collection(self, *, collection_name: str, vectors_config: object) -> None:
+    async def create_collection(
+        self,
+        *,
+        collection_name: str,
+        vectors_config: object,
+        sparse_vectors_config: object,
+    ) -> None:
         self.collections.add(collection_name)
 
     async def upsert(
@@ -59,6 +65,7 @@ async def test_qdrant_index_creates_collection_and_preserves_payload() -> None:
         chunks=[chunk],
         vectors=[[0.5] * 16],
         model_name="test-model",
+        sparse_vectors=[([3, 9], [1.0, 2.0])],
     )
 
     assert count == 1
@@ -68,6 +75,8 @@ async def test_qdrant_index_creates_collection_and_preserves_payload() -> None:
     assert point.payload["tenant_id"] == str(chunk.tenant_id)
     assert point.payload["page_number"] == 2
     assert point.payload["embedding_model"] == "test-model"
+    assert "dense" in point.vector
+    assert point.vector["sparse"].indices == [3, 9]
 
 
 @pytest.mark.asyncio

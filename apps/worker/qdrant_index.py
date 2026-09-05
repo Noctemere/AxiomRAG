@@ -20,6 +20,7 @@ class VectorIndex(Protocol):
         chunks: list[DocumentChunk],
         vectors: list[list[float]],
         model_name: str,
+        sparse_vectors: list[tuple[list[int], list[float]]] | None = None,
     ) -> int:
         """Upsert vectors and provenance payloads, returning the point count."""
         ...
@@ -33,17 +34,17 @@ class QdrantVectorIndex:
         self._collection_name = collection_name
 
     async def ensure_collection(self, *, dimension: int) -> None:
-        """Create the collection when absent and keep cosine distance explicit."""
+        """Create a named dense+sparse collection when absent."""
         from qdrant_client.http import models
 
         exists = await self._client.collection_exists(collection_name=self._collection_name)  # type: ignore[attr-defined]
         if not exists:
             await self._client.create_collection(  # type: ignore[attr-defined]
                 collection_name=self._collection_name,
-                vectors_config=models.VectorParams(
-                    size=dimension,
-                    distance=models.Distance.COSINE,
-                ),
+                vectors_config={
+                    "dense": models.VectorParams(size=dimension, distance=models.Distance.COSINE),
+                },
+                sparse_vectors_config={"sparse": models.SparseVectorParams()},
             )
 
     async def upsert_chunks(
@@ -53,16 +54,29 @@ class QdrantVectorIndex:
         chunks: list[DocumentChunk],
         vectors: list[list[float]],
         model_name: str,
+        sparse_vectors: list[tuple[list[int], list[float]]] | None = None,
     ) -> int:
         """Write vectors with tenant and citation metadata as payload."""
         if len(chunks) != len(vectors):
             raise ValueError("chunks and vectors must have equal lengths")
+        if sparse_vectors is not None and len(chunks) != len(sparse_vectors):
+            raise ValueError("chunks and sparse vectors must have equal lengths")
         from qdrant_client.http import models
 
         points = [
             models.PointStruct(
                 id=str(chunk.chunk_id),
-                vector=vector,
+                vector=(
+                    {
+                        "dense": vector,
+                        "sparse": models.SparseVector(
+                            indices=sparse_vectors[index][0],
+                            values=sparse_vectors[index][1],
+                        ),
+                    }
+                    if sparse_vectors is not None
+                    else vector
+                ),
                 payload={
                     "tenant_id": str(tenant_id),
                     "document_id": str(chunk.document_id),
@@ -74,7 +88,7 @@ class QdrantVectorIndex:
                     "embedding_model": model_name,
                 },
             )
-            for chunk, vector in zip(chunks, vectors, strict=True)
+            for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
         ]
         if points:
             await self._client.upsert(  # type: ignore[attr-defined]

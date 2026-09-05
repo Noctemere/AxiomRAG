@@ -20,6 +20,7 @@ from apps.worker.embedding import embed_chunks as create_embeddings
 from apps.worker.job_lifecycle import JobLifecycleService
 from apps.worker.parser import ParserRegistry, PlainTextParser
 from apps.worker.qdrant_index import QdrantVectorIndex
+from apps.worker.sparse_vector import SparseVectorizer
 from apps.worker.storage import LocalDocumentStore
 from packages.contracts.models import DocumentAsset
 
@@ -28,6 +29,7 @@ document_store = LocalDocumentStore(Path("data/documents"))
 parser_registry = ParserRegistry([PlainTextParser(), DoclingParser.create_default()])
 chunking_service = ChunkingService()
 embedding_provider = HashEmbeddingProvider()
+sparse_vectorizer = SparseVectorizer()
 qdrant_index = QdrantVectorIndex(AsyncQdrantClient(settings.qdrant_url), settings.qdrant_collection)
 
 
@@ -110,12 +112,14 @@ async def _embed_and_index(
             tenant_id=tenant_id,
         )
     vectors = await create_embeddings(embedding_provider, chunks)
+    sparse_vectors = sparse_vectorizer.transform([chunk.content for chunk in chunks])
     await qdrant_index.ensure_collection(dimension=embedding_provider.dimension)
     return await qdrant_index.upsert_chunks(
         tenant_id=tenant_id,
         chunks=chunks,
         vectors=vectors,
         model_name=embedding_provider.model_name,
+        sparse_vectors=sparse_vectors,
     )
 
 
