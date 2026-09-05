@@ -5,22 +5,30 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.config import get_settings
 from apps.api.database import engine
 from apps.worker.asset_repository import PostgresAssetRepository
 from apps.worker.celery_app import celery_app
 from apps.worker.chunk_repository import PostgresChunkRepository
 from apps.worker.chunking import ChunkingService
 from apps.worker.docling_parser import DoclingParser
+from apps.worker.embedding import HashEmbeddingProvider
+from apps.worker.embedding import embed_chunks as create_embeddings
 from apps.worker.job_lifecycle import JobLifecycleService
 from apps.worker.parser import ParserRegistry, PlainTextParser
+from apps.worker.qdrant_index import QdrantVectorIndex
 from apps.worker.storage import LocalDocumentStore
 from packages.contracts.models import DocumentAsset
 
+settings = get_settings()
 document_store = LocalDocumentStore(Path("data/documents"))
 parser_registry = ParserRegistry([PlainTextParser(), DoclingParser.create_default()])
 chunking_service = ChunkingService()
+embedding_provider = HashEmbeddingProvider()
+qdrant_index = QdrantVectorIndex(AsyncQdrantClient(settings.qdrant_url), settings.qdrant_collection)
 
 
 async def _parse_and_persist(
@@ -88,6 +96,27 @@ async def _set_job_status(
             await lifecycle.mark_failed(
                 job_id=UUID(job_id), tenant_id=UUID(tenant_id), error=error
             )
+
+
+async def _embed_and_index(
+    *,
+    document_id: UUID,
+    tenant_id: UUID,
+) -> int:
+    """Load chunks, create dense vectors, and upsert them with citation payloads."""
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        chunks = await PostgresChunkRepository(session).list_for_document(
+            document_id=document_id,
+            tenant_id=tenant_id,
+        )
+    vectors = await create_embeddings(embedding_provider, chunks)
+    await qdrant_index.ensure_collection(dimension=embedding_provider.dimension)
+    return await qdrant_index.upsert_chunks(
+        tenant_id=tenant_id,
+        chunks=chunks,
+        vectors=vectors,
+        model_name=embedding_provider.model_name,
+    )
 
 
 @celery_app.task(bind=True, name="ingestion.parse_document")  # type: ignore[misc]
@@ -171,14 +200,18 @@ def embed_chunks(
         celery.Task.retry: If embedding fails and retries are configured.
     """
     try:
-        # Placeholder: embedding logic will be implemented in Phase 3.
-        # Future work will integrate embedding adapters and batch processing.
+        embeddings_created = asyncio.run(
+            _embed_and_index(
+                document_id=UUID(document_id),
+                tenant_id=UUID(tenant_id),
+            )
+        )
         return {
             "job_id": job_id,
             "document_id": document_id,
             "tenant_id": tenant_id,
             "status": "queued_for_indexing",
-            "embeddings_created": 0,
+            "embeddings_created": embeddings_created,
         }
     except Exception as exc:
         asyncio.run(
