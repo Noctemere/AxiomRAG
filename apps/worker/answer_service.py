@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
+
+import httpx
 
 from apps.worker.semantic_cache import CacheKey, SemanticCache
 from packages.contracts.models import Answer, Citation, Query, RetrievalResult
@@ -46,6 +48,79 @@ class ExtractiveAnswerGenerator:
             model=self.model_name,
             created_at=datetime.now(UTC),
         )
+
+
+class OpenAICompatibleAnswerGenerator:
+    """Grounded answer adapter for OpenAI-compatible chat-completions APIs."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model_name: str,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        if not api_key.strip():
+            raise ValueError("answer API key must not be empty")
+        self.model_name = model_name
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+        self._client = client or httpx.AsyncClient(timeout=60.0)
+        self._owns_client = client is None
+
+    async def generate(self, query: str, evidence: list[RetrievalResult]) -> Answer:
+        """Generate a grounded answer and reject citations absent from evidence."""
+        if not evidence:
+            return await ExtractiveAnswerGenerator().generate(query, evidence)
+        context = "\n\n".join(
+            f"[{index}] {result.chunk.content}" for index, result in enumerate(evidence, start=1)
+        )
+        response = await self._client.post(
+            f"{self._base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json={
+                "model": self.model_name,
+                "temperature": 0,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Answer only from the supplied evidence. "
+                            "Cite sources as [1], [2], etc."
+                        ),
+                    },
+                    {"role": "user", "content": f"Evidence:\n{context}\n\nQuestion: {query}"},
+                ],
+            },
+        )
+        response.raise_for_status()
+        payload: Any = response.json()
+        text = payload["choices"][0]["message"]["content"]
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("answer provider returned empty content")
+        citations = [
+            Citation(
+                source_name=f"document:{result.chunk.document_id}",
+                quote=result.chunk.content,
+                provenance=result.chunk.provenance,
+            )
+            for index, result in enumerate(evidence, start=1)
+            if f"[{index}]" in text
+        ]
+        if not citations:
+            raise ValueError("answer provider returned no valid evidence citations")
+        return Answer(
+            text=text,
+            citations=citations,
+            model=self.model_name,
+            created_at=datetime.now(UTC),
+        )
+
+    async def aclose(self) -> None:
+        """Close the HTTP client when this generator created it."""
+        if self._owns_client:
+            await self._client.aclose()
 
 
 class AnswerService:

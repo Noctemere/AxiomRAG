@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
     embedding_batch_size: int = 64
+    answer_model: str = "gpt-4o-mini"
+    answer_base_url: str = "https://api.openai.com/v1"
+    answer_api_key: str | None = None
+    answer_cache_ttl_seconds: int = 300
     langfuse_host: str = "http://localhost:3000"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
