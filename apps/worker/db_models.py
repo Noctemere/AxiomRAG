@@ -94,3 +94,23 @@ class DocumentAssetModel(Base):
     page_number: Mapped[int | None] = mapped_column(nullable=True)
     region_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AuditEventModel(Base):
+    """ORM representation of an orchestration security audit event."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("audit_events_tenant_created_idx", "tenant_id", "created_at"),
+        Index("audit_events_actor_created_idx", "actor_id", "created_at"),
+    )
+
+    event_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    allowed: Mapped[bool] = mapped_column(nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approval_id: Mapped[UUID | None] = mapped_column(PostgresUUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

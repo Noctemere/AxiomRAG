@@ -14,6 +14,10 @@ class PromptInjectionError(ValueError):
     """Raised when untrusted content attempts to control tool execution."""
 
 
+class ApprovalRequiredError(PermissionError):
+    """Raised when a high-risk tool needs explicit human approval."""
+
+
 @dataclass(frozen=True)
 class AuditEvent:
     """Structured record for an authorized or rejected tool action."""
@@ -25,6 +29,7 @@ class AuditEvent:
     action: str
     allowed: bool
     reason: str | None
+    approval_id: UUID | None
     created_at: datetime
 
 
@@ -50,10 +55,15 @@ class ToolPolicy:
     """Allowlist of tools available to a tenant/actor pair."""
 
     allowed_tools: frozenset[str]
+    approval_required_tools: frozenset[str] = frozenset()
 
     def allows(self, tool_name: str) -> bool:
         """Return whether the exact tool name is allowlisted."""
         return tool_name in self.allowed_tools
+
+    def requires_approval(self, tool_name: str) -> bool:
+        """Return whether a tool requires explicit human approval."""
+        return tool_name in self.approval_required_tools
 
 
 class PromptInjectionGuard:
@@ -89,10 +99,18 @@ class AuthorizedToolExecutor:
         tool_name: str,
         action: str,
         arguments: dict[str, object],
+        approval_id: UUID | None = None,
     ) -> dict[str, object]:
         """Authorize a bounded tool action and return an auditable result."""
         allowed = self._policy.allows(tool_name)
-        reason = None if allowed else "tool is not allowlisted"
+        approval_missing = self._policy.requires_approval(tool_name) and approval_id is None
+        reason = (
+            "tool is not allowlisted"
+            if not allowed
+            else "human approval is required"
+            if approval_missing
+            else None
+        )
         await self._audit_sink.write(
             AuditEvent(
                 event_id=uuid4(),
@@ -102,9 +120,12 @@ class AuthorizedToolExecutor:
                 action=action,
                 allowed=allowed,
                 reason=reason,
+                approval_id=approval_id,
                 created_at=datetime.now(UTC),
             )
         )
         if not allowed:
             raise ToolAuthorizationError(reason or "tool access denied")
+        if approval_missing:
+            raise ApprovalRequiredError(reason or "human approval is required")
         return {"tool": tool_name, "action": action, "arguments": arguments}
