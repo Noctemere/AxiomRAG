@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     answer_base_url: str = "https://api.openai.com/v1"
     answer_api_key: str | None = None
     answer_cache_ttl_seconds: int = 300
+    sql_allowed_tables: str = "documents,document_chunks"
+    sql_max_rows: int = 100
+    sql_timeout_seconds: float = 5.0
     langfuse_host: str = "http://localhost:3000"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
