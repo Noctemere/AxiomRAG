@@ -28,6 +28,7 @@ class GraphState(TypedDict, total=False):
     answer: Answer
     error: str | None
     iterations: int
+    audit_events: list[str]
 
 
 class Retriever(Protocol):
