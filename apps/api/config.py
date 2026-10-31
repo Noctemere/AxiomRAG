@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     sql_timeout_seconds: float = 5.0
     auth_mode: str = "local"
     jwt_secret: str | None = None
+    jwt_jwks_url: str | None = None
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
     langfuse_host: str = "http://localhost:3000"
