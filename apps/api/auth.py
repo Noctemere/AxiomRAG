@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import jwt
@@ -15,6 +16,11 @@ class AuthContext:
 
     tenant_id: UUID
     actor_id: UUID
+    roles: frozenset[str] = frozenset()
+
+
+class AuthorizationError(PermissionError):
+    """Raised when an authenticated actor lacks a required role."""
 
 
 def decode_access_token(
@@ -36,9 +42,14 @@ def decode_access_token(
         options={"require": ["sub", "tenant_id"]},
     )
     try:
+        raw_roles: Any = claims.get("roles", [])
+        raw_role_values: list[Any] = (
+            raw_roles if isinstance(raw_roles, list) else str(claims.get("scope", "")).split()
+        )
         return AuthContext(
             tenant_id=UUID(str(claims["tenant_id"])),
             actor_id=UUID(str(claims["sub"])),
+            roles=frozenset(str(role) for role in raw_role_values),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("JWT identity claims are invalid") from exc
@@ -48,6 +59,7 @@ async def get_auth_context(
     x_tenant_id: str | None = Header(default=None),
     x_actor_id: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
+    x_roles: str | None = Header(default=None),
 ) -> AuthContext:
     """Verify JWT identity in production and use UUID headers only in local mode."""
     settings = get_settings()
@@ -75,9 +87,19 @@ async def get_auth_context(
             detail="X-Tenant-ID and X-Actor-ID headers are required in local mode",
         )
     try:
-        return AuthContext(tenant_id=UUID(x_tenant_id), actor_id=UUID(x_actor_id))
+        roles_value = x_roles if isinstance(x_roles, str) else ""
+        roles = frozenset(role.strip() for role in roles_value.split(",") if role.strip())
+        return AuthContext(tenant_id=UUID(x_tenant_id), actor_id=UUID(x_actor_id), roles=roles)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="identity headers must contain valid UUIDs",
         ) from exc
+
+
+def require_roles(context: AuthContext, *required_roles: str) -> AuthContext:
+    """Return the context only when the actor has every required role."""
+    missing = set(required_roles) - context.roles
+    if missing:
+        raise AuthorizationError(f"missing required role: {sorted(missing)[0]}")
+    return context
