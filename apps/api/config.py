@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     sql_allowed_tables: str = "documents,document_chunks"
     sql_max_rows: int = 100
     sql_timeout_seconds: float = 5.0
+    auth_mode: str = "local"
+    jwt_secret: str | None = None
+    jwt_issuer: str | None = None
+    jwt_audience: str | None = None
     langfuse_host: str = "http://localhost:3000"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
