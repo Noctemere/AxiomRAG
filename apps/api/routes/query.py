@@ -4,9 +4,10 @@ import json
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from apps.api.auth import AuthContext, get_auth_context
 from apps.worker.observability import InMemoryTraceSink, TraceEvent, TraceSink, start_trace
 from packages.contracts.models import Answer, Query, StreamEvent, StreamEventType
 
@@ -106,7 +107,11 @@ router = APIRouter(prefix="/api/v1/query", tags=["query"])
 
 
 @router.post("/stream")
-async def stream_query(request: Request, query: Query) -> StreamingResponse:
+async def stream_query(
+    request: Request,
+    query: Query,
+    auth: AuthContext = Depends(get_auth_context),  # noqa: B008
+) -> StreamingResponse:
     """Stream a graph answer over SSE, returning 503 when not composed."""
     service = getattr(request.app.state, "query_service", None)
     if not isinstance(service, QueryStreamService):
@@ -114,6 +119,7 @@ async def stream_query(request: Request, query: Query) -> StreamingResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="query orchestration is not configured",
         )
+    query = query.model_copy(update={"tenant_id": auth.tenant_id})
 
     async def body() -> AsyncIterator[str]:
         async for event in service.events(query):

@@ -46,6 +46,8 @@ async function* readSse(response: Response): AsyncGenerator<StreamEvent> {
 }
 
 export default function QueryClient() {
+  const [tenantId] = useState(() => crypto.randomUUID());
+  const [actorId] = useState(() => crypto.randomUUID());
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<Citation[]>([]);
@@ -67,7 +69,11 @@ export default function QueryClient() {
     try {
       const response = await fetch(`${apiUrl}/api/v1/query/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tenant-ID": tenantId,
+          "X-Actor-ID": actorId,
+        },
         signal: nextController.signal,
         body: JSON.stringify({ text: query, tenant_id: crypto.randomUUID() }),
       });
