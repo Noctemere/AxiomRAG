@@ -7,6 +7,7 @@ from typing import Protocol
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from apps.worker.observability import InMemoryTraceSink, TraceEvent, TraceSink, start_trace
 from packages.contracts.models import Answer, Query, StreamEvent, StreamEventType
 
 
@@ -19,11 +20,16 @@ class QueryGraph(Protocol):
 class QueryStreamService:
     """Translate graph completion into a reconnect-friendly SSE event stream."""
 
-    def __init__(self, graph: QueryGraph) -> None:
+    def __init__(self, graph: QueryGraph, trace_sink: TraceSink | None = None) -> None:
         self._graph = graph
+        self._trace_sink = trace_sink or InMemoryTraceSink()
 
     async def events(self, query: Query) -> AsyncIterator[StreamEvent]:
         """Yield route, answer, citation, completion, or error events in order."""
+        trace = start_trace(query.text, query.tenant_id)
+        await self._trace_sink.record(
+            TraceEvent(trace.trace_id, "query", "started", {"tenant_id": str(query.tenant_id)})
+        )
         try:
             result = await self._graph.ainvoke({"query": query})
             route = result.get("route")
@@ -65,7 +71,13 @@ class QueryStreamService:
                 data="complete",
                 created_at=query_created_at(),
             )
+            await self._trace_sink.record(
+                TraceEvent(trace.trace_id, "query", "completed", {"route": str(route or "unknown")})
+            )
         except Exception as exc:
+            await self._trace_sink.record(
+                TraceEvent(trace.trace_id, "query", "failed", {"error_type": type(exc).__name__})
+            )
             yield StreamEvent(
                 event_id="error",
                 event_type=StreamEventType.ERROR,
