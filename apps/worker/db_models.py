@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -114,3 +115,16 @@ class AuditEventModel(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approval_id: Mapped[UUID | None] = mapped_column(PostgresUUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TenantMembershipModel(Base):
+    """ORM representation of an actor's tenant membership and roles."""
+
+    __tablename__ = "tenant_memberships"
+
+    tenant_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), primary_key=True)
+    actor_id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), primary_key=True)
+    roles: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
