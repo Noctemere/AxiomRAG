@@ -5,6 +5,8 @@ from typing import Protocol
 from uuid import UUID
 
 from apps.api.auth import AuthContext, AuthorizationError
+from apps.api.database import DatabaseSession
+from apps.api.membership_repository import PostgresMembershipRepository
 
 
 class MembershipRepository(Protocol):
@@ -55,3 +57,16 @@ class InMemoryMembershipRepository:
     async def get_roles(self, *, tenant_id: UUID, actor_id: UUID) -> frozenset[str] | None:
         """Return roles for the exact tenant and actor pair."""
         return self._memberships.get((tenant_id, actor_id))
+
+
+async def require_tenant_membership(
+    context: AuthContext,
+    session: DatabaseSession,
+    *,
+    required_roles: frozenset[str] = frozenset(),
+) -> AuthContext:
+    """Authorize request identity against the PostgreSQL membership table."""
+    return await TenantAccessService(PostgresMembershipRepository(session)).authorize(
+        context,
+        required_roles=required_roles,
+    )
