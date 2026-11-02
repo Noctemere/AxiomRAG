@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 
 from apps.api.config import get_settings
+from apps.api.routes.admin import router as admin_router
 from apps.api.routes.documents import router as documents_router
 from apps.api.routes.query import router as query_router
 
 settings = get_settings()
 app = FastAPI(title="AxiomRAG API", version="0.1.0")
 app.include_router(documents_router)
+app.include_router(admin_router)
 app.include_router(query_router)
 
 
