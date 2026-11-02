@@ -15,6 +15,10 @@ Phase 1 establishes the monorepo, typed service boundaries, local infrastructure
 5. Start the API with `uv run uvicorn apps.api.main:app --reload`.
 6. Open `http://localhost:8000/docs`.
 
+PostgreSQL applies the ordered files in `infra/docker/migrations` on the first
+volume initialization. To re-run migrations from a clean local database, stop
+Compose and remove only the local `postgres_data` volume before starting again.
+
 ## Checks
 
 ```powershell
