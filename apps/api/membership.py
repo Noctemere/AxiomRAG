@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Annotated, Protocol
 from uuid import UUID
 
-from apps.api.auth import AuthContext, AuthorizationError
+from fastapi import Depends, HTTPException, status
+
+from apps.api.auth import AuthContext, AuthorizationError, get_auth_context
+from apps.api.config import get_settings
 from apps.api.database import DatabaseSession
 from apps.api.membership_repository import PostgresMembershipRepository
 
@@ -70,3 +73,19 @@ async def require_tenant_membership(
         context,
         required_roles=required_roles,
     )
+
+
+async def get_authorized_context(
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+    session: DatabaseSession,
+) -> AuthContext:
+    """Require database membership for JWT/JWKS modes while preserving local development."""
+    if get_settings().auth_mode == "local":
+        return context
+    try:
+        return await require_tenant_membership(context, session)
+    except AuthorizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc

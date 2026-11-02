@@ -7,7 +7,8 @@ from typing import Protocol
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from apps.api.auth import AuthContext, get_auth_context
+from apps.api.auth import AuthContext
+from apps.api.membership import get_authorized_context
 from apps.worker.observability import InMemoryTraceSink, TraceEvent, TraceSink, start_trace
 from packages.contracts.models import Answer, Query, StreamEvent, StreamEventType
 
@@ -110,7 +111,7 @@ router = APIRouter(prefix="/api/v1/query", tags=["query"])
 async def stream_query(
     request: Request,
     query: Query,
-    auth: AuthContext = Depends(get_auth_context),  # noqa: B008
+    auth: AuthContext = Depends(get_authorized_context),  # noqa: B008
 ) -> StreamingResponse:
     """Stream a graph answer over SSE, returning 503 when not composed."""
     service = getattr(request.app.state, "query_service", None)
