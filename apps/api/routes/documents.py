@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
+from apps.api.auth import AuthContext
 from apps.api.database import SessionFactory
+from apps.api.membership import get_authorized_context
 from apps.worker.document_repository import PostgresDocumentRepository
 from apps.worker.ingestion_service import (
     IngestionService,
@@ -39,6 +41,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 async def upload_document(
     tenant_id: str = Form(...),
     file: UploadFile = File(...),  # noqa: B008
+    auth: AuthContext = Depends(get_authorized_context),  # noqa: B008
 ) -> IngestionJob:
     """Accept a document upload and dispatch an asynchronous ingestion pipeline.
 
@@ -66,6 +69,11 @@ async def upload_document(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="tenant_id must be a valid UUID",
         ) from exc
+    if tenant_uuid != auth.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tenant_id does not match authenticated identity",
+        )
 
     if not file.filename:
         raise HTTPException(
@@ -133,6 +141,7 @@ async def upload_document(
 async def get_document_status(
     document_id: str,
     tenant_id: str,
+    auth: AuthContext = Depends(get_authorized_context),  # noqa: B008
 ) -> dict[str, str]:
     """Retrieve the ingestion status of a document.
 
@@ -156,6 +165,11 @@ async def get_document_status(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="document_id and tenant_id must be valid UUIDs",
         ) from exc
+    if tenant_uuid != auth.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tenant_id does not match authenticated identity",
+        )
 
     async with SessionFactory() as session:
         job = await JobLifecycleService(session).latest_for_document(
