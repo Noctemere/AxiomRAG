@@ -6,15 +6,18 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
 from apps.api.config import Settings
+from apps.api.database import SessionFactory
 from apps.worker.answer_service import ExtractiveAnswerGenerator, OpenAICompatibleAnswerGenerator
 from apps.worker.embedding import HashEmbeddingProvider, OpenAICompatibleEmbeddingProvider
 from apps.worker.graph_adapters import AnswerServiceAdapter, UnavailableSqlExecutor
-from apps.worker.orchestration import OrchestrationGraph
+from apps.worker.orchestration import OrchestrationGraph, SqlExecutor
 from apps.worker.qdrant_index import QdrantVectorIndex
 from apps.worker.redis_cache import RedisSemanticCache
 from apps.worker.reranking import LexicalReranker
 from apps.worker.retriever import QdrantHybridRetriever
 from apps.worker.sparse_vector import SparseVectorizer
+from apps.worker.sql_execution import QuerySqlExecutor, SafeSqlExecutor, SqlSafetyPolicy
+from apps.worker.sql_generator import OpenAICompatibleSqlGenerator
 
 
 @dataclass
@@ -66,9 +69,30 @@ class ApplicationContainer:
             index_version="phase3",
             ttl_seconds=settings.answer_cache_ttl_seconds,
         )
+        sql_executor: SqlExecutor = UnavailableSqlExecutor()
+        if settings.sql_api_key:
+            sql_generator = OpenAICompatibleSqlGenerator(
+                api_key=settings.sql_api_key,
+                base_url=settings.sql_base_url,
+                model_name=settings.sql_model,
+                schema_description=settings.sql_schema_description,
+            )
+            sql_executor = QuerySqlExecutor(
+                sql_generator,
+                SafeSqlExecutor(
+                    SessionFactory,
+                    SqlSafetyPolicy(
+                        allowed_tables=frozenset(
+                            table.strip() for table in settings.sql_allowed_tables.split(",")
+                        ),
+                        max_rows=settings.sql_max_rows,
+                        timeout_seconds=settings.sql_timeout_seconds,
+                    ),
+                ),
+            )
         graph = OrchestrationGraph(
             retriever=retriever,
-            sql_executor=UnavailableSqlExecutor(),
+            sql_executor=sql_executor,
             answerer=answerer,
         ).compile()
         return cls(graph=graph, qdrant=qdrant, redis=redis, embedding=embedding)

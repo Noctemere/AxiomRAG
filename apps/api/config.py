@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     sql_allowed_tables: str = "documents,document_chunks"
     sql_max_rows: int = 100
     sql_timeout_seconds: float = 5.0
+    sql_api_key: str | None = None
+    sql_base_url: str = "https://api.openai.com/v1"
+    sql_model: str = "gpt-4o-mini"
+    sql_schema_description: str = (
+        "documents(document_id, tenant_id, filename); "
+        "document_chunks(chunk_id, document_id, tenant_id, content)"
+    )
     auth_mode: str = "local"
     jwt_secret: str | None = None
     jwt_jwks_url: str | None = None
