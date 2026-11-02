@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: axiomrag-api
+  labels:
+    app.kubernetes.io/name: axiomrag-api
+    app.kubernetes.io/part-of: axiomrag
+spec:
+  selector:
+    app.kubernetes.io/name: axiomrag-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: axiomrag-web
+  labels:
+    app.kubernetes.io/name: axiomrag-web
+    app.kubernetes.io/part-of: axiomrag
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: axiomrag-web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
